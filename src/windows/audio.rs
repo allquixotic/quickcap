@@ -32,6 +32,7 @@ pub struct Audio {
     stop: Arc<AtomicBool>,
     workers: Vec<JoinHandle<()>>,
     warnings: Receiver<String>,
+    dropped: u64,
 }
 impl Audio {
     pub fn start(epoch: u64) -> Self {
@@ -45,8 +46,10 @@ impl Audio {
             let stop = stop.clone();
             let warning = warnings_tx.clone();
             workers.push(thread::spawn(move || {
-                if let Err(e) = capture(flow, epoch, &stop, tx) {
-                    let _ = warning.try_send(format!("{label} unavailable: {e:#}"));
+                if let Err(e) = capture(flow, label, epoch, &stop, tx) {
+                    let text = format!("{label} unavailable: {e:#}");
+                    log::warn!("{text}");
+                    let _ = warning.try_send(text);
                 }
             }));
         }
@@ -56,6 +59,7 @@ impl Audio {
             stop,
             workers,
             warnings,
+            dropped: 0,
         }
     }
     pub fn mix(&mut self, start: u64, len: usize) -> Vec<f32> {
@@ -65,6 +69,8 @@ impl Audio {
                 // Limit queued future audio independently of device/clock behavior.
                 if pending.len() < 64 {
                     pending.push_back(packet);
+                } else {
+                    self.dropped += 1;
                 }
             }
             for p in pending.iter() {
@@ -82,6 +88,10 @@ impl Audio {
         for w in self.workers.drain(..) {
             let _ = w.join();
         }
+        if self.dropped > 0 {
+            log::warn!("Audio mixer dropped {} packets under load", self.dropped);
+            self.dropped = 0;
+        }
     }
 }
 impl Drop for Audio {
@@ -92,6 +102,7 @@ impl Drop for Audio {
 
 fn capture(
     flow: EDataFlow,
+    label: &str,
     epoch: u64,
     stop: &AtomicBool,
     tx: SyncSender<AudioPacket>,
@@ -135,12 +146,17 @@ fn capture(
         );
         let service: IAudioCaptureClient = client.GetService()?;
         client.Start()?;
+        let mut dropped = 0u64;
+        let mut discontinuities = 0u64;
         let result = (|| -> Result<()> {
             while !stop.load(Ordering::Acquire) {
                 while service.GetNextPacketSize()? > 0 {
                     let (mut data, mut frames, mut flags, mut qpc) =
                         (std::ptr::null_mut(), 0, 0, 0);
                     service.GetBuffer(&mut data, &mut frames, &mut flags, None, Some(&mut qpc))?;
+                    if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
+                        discontinuities += 1;
+                    }
                     let packet = (|| -> Result<AudioPacket> {
                         let bytes_per_frame = f.nBlockAlign as usize;
                         let bytes_per_sample = (f.wBitsPerSample / 8) as usize;
@@ -219,13 +235,24 @@ fn capture(
                     let release = service.ReleaseBuffer(frames);
                     let packet = packet?;
                     release?;
-                    let _ = tx.try_send(packet); // Bounded queue; drop late audio under load.
+                    match tx.try_send(packet) {
+                        Ok(()) => {}
+                        Err(mpsc::TrySendError::Full(_)) => dropped += 1,
+                        Err(mpsc::TrySendError::Disconnected(_)) => return Ok(()),
+                    }
                 }
                 thread::sleep(Duration::from_millis(5));
             }
             Ok(())
         })();
-        let _ = client.Stop();
+        if dropped > 0 || discontinuities > 0 {
+            log::warn!(
+                "{label}: {dropped} packets dropped under load; {discontinuities} WASAPI discontinuities"
+            );
+        }
+        if let Err(error) = client.Stop() {
+            log::warn!("{label}: WASAPI stop failed: {error}");
+        }
         result
     }
 }

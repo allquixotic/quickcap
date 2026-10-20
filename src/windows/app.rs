@@ -191,6 +191,11 @@ pub fn run() -> Result<()> {
     };
     app.update_bindings();
     app.status("Ready — use a hotkey or click the tray icon.");
+    log::info!(
+        "Ready; config: {}; captures: {}",
+        app.config_path.display(),
+        app.folder.display()
+    );
     APP.with(|slot| *slot.borrow_mut() = Some(Rc::new(RefCell::new(app))));
     slint::run_event_loop_until_quit()?;
     APP.with(|slot| {
@@ -324,6 +329,10 @@ impl App {
         self.ui.set_busy(self.phase != Phase::Idle);
     }
     fn error(&mut self, text: String) {
+        log::error!("{text}");
+        self.show_error(text);
+    }
+    fn show_error(&mut self, text: String) {
         self.status(&text);
         let _ = self.show_controls(false);
     }
@@ -364,6 +373,7 @@ impl App {
                     self.update_bindings();
                 }
                 self.status("Hotkeys reloaded");
+                log::info!("Hotkeys reloaded");
             }
             Message::Shell(Event::Menu(menu)) => match menu {
                 shell::SHOW => self.show_controls(false)?,
@@ -381,6 +391,7 @@ impl App {
                 }
                 shell::STOP => self.stop(),
                 shell::QUIT => {
+                    log::info!("Exit requested");
                     self.quitting = true;
                     self.stop();
                     if self.recording.is_none() {
@@ -463,7 +474,7 @@ impl App {
                             format!("\n{} frames skipped under load", o.dropped)
                         }
                     )),
-                    Err(e) => self.error(format!(
+                    Err(e) => self.show_error(format!(
                         "Recording failed: {e:#}. Any partial MP4 was retained."
                     )),
                 }
@@ -475,7 +486,7 @@ impl App {
                 self.phase = Phase::Idle;
                 match result {
                     Ok(text) => self.status(&text),
-                    Err(e) => self.error(format!("Screenshot failed: {e:#}")),
+                    Err(e) => self.show_error(format!("Screenshot failed: {e:#}")),
                 }
             }
             _ => {}
@@ -526,7 +537,7 @@ impl App {
         self.screenshots.retain(|w| !w.is_finished());
         self.screenshots.push(thread::spawn(move || {
             thread::sleep(Duration::from_millis(150));
-            post(Message::Screenshot((|| -> Result<String> {
+            let result = (|| -> Result<String> {
                 let frame = capture::Grabber::new(rect, false)?.grab(true)?;
                 if clipboard {
                     capture::clipboard(&frame)?;
@@ -537,7 +548,12 @@ impl App {
                         capture::jpeg(&frame, &folder)?.display()
                     ))
                 }
-            })()));
+            })();
+            match &result {
+                Ok(text) => log::info!("{text}"),
+                Err(error) => log::error!("Screenshot failed: {error:#}"),
+            }
+            post(Message::Screenshot(result));
         }));
     }
     fn countdown(&mut self, rect: Rect) -> Result<()> {
@@ -556,22 +572,23 @@ impl App {
         let folder = self.folder.clone();
         let stop = self.cancel.clone();
         self.recording = Some(thread::spawn(move || {
-            post(Message::Recorded(recording::record(
-                rect,
-                &folder,
-                stop,
-                || post(Message::RecordingStarted),
-            )))
+            let result = recording::record(rect, &folder, stop, || post(Message::RecordingStarted));
+            if let Err(error) = &result {
+                log::error!("Recording failed: {error:#}. Any partial MP4 was retained.");
+            }
+            post(Message::Recorded(result));
         }));
     }
     fn stop(&mut self) {
         match self.phase.video_action() {
             VideoAction::StopAndSave => {
+                log::info!("Recording stop requested; saving MP4");
                 self.cancel.store(true, Ordering::Release);
                 self.phase = Phase::Stopping;
                 self.status("Saving MP4…");
             }
             VideoAction::CancelCountdown => {
+                log::info!("Recording countdown cancelled");
                 self.cancel.store(true, Ordering::Release);
                 self.generation += 1;
                 let _ = self.ui.hide();

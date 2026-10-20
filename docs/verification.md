@@ -8,8 +8,8 @@ on the `games` VM. Runtime tests ran through `asuser` as
 
 Completed checks:
 
-- 12 portable unit tests on macOS; 13 tests on Windows including native software
-  H.264 + MP3 encoding and MP4 finalization.
+- 12 portable unit tests on macOS; 16 tests on Windows including native software
+  H.264 + MP3 encoding, MP4 finalization, and file logging.
 - Rust formatting and Windows `cargo clippy --all-targets -- -D warnings`.
 - GitHub workflow syntax with `actionlint`.
 - Synthetic MP4 independently probed as H.264 Constrained Baseline, 640×360,
@@ -39,6 +39,13 @@ Completed checks:
 - Help and About JPEG previews were visually checked on dark-mode Windows.
   Both use a consistent light palette with readable buttons. All 13 Windows
   tests and the full capture interaction test passed again after the UI changes.
+- Logging tests verified preservation of earlier sessions, 320 concurrent
+  complete messages, severity filtering, single-line error formatting, reporting
+  a failed writer only once, and worker panic logging in an isolated subprocess.
+  The full desktop and tray interaction tests passed with logging enabled;
+  the desktop test checked capture/lifecycle events, bounded log volume, append
+  behavior on a second launch, and an actual fatal invalid-argument error.
+  Native WASAPI discontinuity warnings were present in the resulting log.
 - Observed tray readiness: approximately 44–150 ms in these VM runs; not a guaranteed
   startup bound across machines.
 - PE imports contain only Windows DLLs. No D3D/Vulkan/OpenGL import, FFmpeg, codec

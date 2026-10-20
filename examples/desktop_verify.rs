@@ -192,6 +192,12 @@ mod verify {
             tray_window().is_none(),
             "An existing quickcap is running; exit it first"
         );
+        let log_path = folder(&FOLDERID_Documents)?.join("quickcap/quickcap_log.txt");
+        let old_log = if log_path.exists() {
+            std::fs::read_to_string(&log_path)?
+        } else {
+            String::new()
+        };
         let started = Instant::now();
         let mut process = Process(Command::new(exe).spawn()?);
         let mut hwnd = None;
@@ -300,8 +306,54 @@ mod verify {
         }
         wait(|| process.0.try_wait().ok().flatten().is_some(), 10)?;
         ensure!(process.0.wait()?.success(), "App exited with failure");
+        let saved_log = std::fs::read_to_string(&log_path)?;
+        ensure!(
+            saved_log.starts_with(&old_log),
+            "Log overwrote an earlier session"
+        );
+        let pid = format!("[pid={}]", process.0.id());
+        let events: Vec<_> = saved_log
+            .lines()
+            .filter(|line| line.contains(&pid))
+            .collect();
+        for required in [
+            "started",
+            "Ready; config:",
+            "Image copied to clipboard",
+            "Saved",
+            "Recording started:",
+            "Recording countdown cancelled",
+            "Recording stop requested",
+            "Exit requested",
+            "Stopped",
+        ] {
+            ensure!(
+                events.iter().any(|line| line.contains(required)),
+                "Missing log event: {required}"
+            );
+        }
+        ensure!(
+            events.len() < 40,
+            "Log is unexpectedly noisy: {} events",
+            events.len()
+        );
+        let mut rejected = Command::new(exe).arg("--invalid-test-argument").spawn()?;
+        ensure!(!rejected.wait()?.success(), "Invalid argument should fail");
+        let error_log = std::fs::read_to_string(&log_path)?;
+        ensure!(
+            error_log.starts_with(&saved_log),
+            "Next launch overwrote the log"
+        );
+        let error_pid = format!("[pid={}]", rejected.id());
+        ensure!(
+            error_log.lines().any(|line| line.contains(&error_pid)
+                && line.contains("[ERROR]")
+                && line.contains("Fatal error: Unknown argument")),
+            "Fatal startup error missing from log"
+        );
+        println!("PASS persistent, concise log and fatal startup error");
         Ok(format!(
-            "PASS\nTray startup: {:.0} ms\nAll six hotkeys; both clipboard paths; desktop/region JPEG; countdown cancel; desktop/region MP4; cross-hotkey stop/save; selection cancellation/restart; Slint window close-to-tray; graceful exit.\nCaptures: {}",
+            "PASS\nTray startup: {:.0} ms\nAll six hotkeys; both clipboard paths; desktop/region JPEG; countdown cancel; desktop/region MP4; cross-hotkey stop/save; selection cancellation/restart; Slint window close-to-tray; graceful exit; append-only concise log; fatal startup error logging.\nCaptures: {}",
             startup.as_secs_f64() * 1000.0,
             captures.display()
         ))

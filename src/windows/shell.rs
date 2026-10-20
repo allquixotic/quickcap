@@ -2,7 +2,7 @@ use super::{capture, wide};
 use crate::{config::Binding, geometry::Rect, pixels::Frame};
 use anyhow::{Context, Result, ensure};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     mem::size_of,
     sync::{
         Arc,
@@ -58,7 +58,9 @@ impl Shell {
         let (tx, rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let worker = thread::spawn(move || {
+            let report = notify.clone();
             if let Err(e) = shell_loop(bindings, rx, notify, ready_tx.clone()) {
+                report(Event::Error(format!("Tray thread failed: {e:#}")));
                 let _ = ready_tx.send(Err(e));
             }
         });
@@ -152,6 +154,7 @@ struct State {
     is_recording: bool,
     status: String,
     taskbar_created: u32,
+    tray_failed: Cell<bool>,
 }
 thread_local! {static STATE:RefCell<Option<State>>=const{RefCell::new(None)};}
 
@@ -238,12 +241,23 @@ fn tray(hwnd: HWND, state: &State, operation: NOTIFY_ICON_MESSAGE) {
     // SAFETY: Shell copies the initialized structure synchronously; icons remain live.
     unsafe {
         let _ = SetWindowTextW(hwnd, PCWSTR(wide(&state.status).as_ptr()));
-        let _ = Shell_NotifyIconW(operation, &data);
+        if !Shell_NotifyIconW(operation, &data).as_bool() {
+            if !state.tray_failed.replace(true) {
+                log::error!(
+                    "Windows could not update the tray icon (operation {})",
+                    operation.0
+                );
+            }
+        } else if state.tray_failed.replace(false) {
+            log::info!("Tray icon recovered");
+        }
         if operation == NIM_ADD {
             // Version 4 supplies native hover notifications and keyboard activation.
             // It must be restored after Explorer recreates the icon as well.
             data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-            let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
+            if !Shell_NotifyIconW(NIM_SETVERSION, &data).as_bool() {
+                log::warn!("Windows could not enable version-4 tray notifications");
+            }
         }
     }
 }
@@ -291,6 +305,7 @@ fn shell_loop(
                 is_recording: false,
                 status: "quickcap — ready".into(),
                 taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
+                tray_failed: Cell::new(false),
             })
         })();
         let state = match init {
@@ -305,7 +320,14 @@ fn shell_loop(
         STATE.with(|slot| *slot.borrow_mut() = Some(state));
         let _ = ready.send(Ok(hwnd.0 as usize));
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+        loop {
+            let result = GetMessageW(&mut msg, None, 0, 0).0;
+            if result <= 0 {
+                if result < 0 {
+                    log::error!("Tray message loop failed: {}", Error::from_thread());
+                }
+                break;
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -338,6 +360,7 @@ unsafe extern "system" fn window_proc(
         // fall through when the RefCell is borrowed, avoiding aliased mutable state.
         unsafe {
             if msg == state.taskbar_created {
+                log::info!("Explorer restarted; restoring tray icon");
                 tray(hwnd, state, NIM_ADD);
                 return true;
             }
@@ -393,6 +416,11 @@ unsafe extern "system" fn window_proc(
                                     (state.notify)(Event::Menu(selected as u32));
                                 }
                                 let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
+                            } else {
+                                log::error!(
+                                    "Could not create tray context menu: {}",
+                                    Error::from_thread()
+                                );
                             }
                         }
                         _ => {}

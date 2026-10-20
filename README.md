@@ -52,6 +52,15 @@ A crash or power loss can leave an incomplete file; it is retained, not reported
 as a saved recording. The clipboard gets a standard Windows bitmap that Office
 applications can paste; JPEG is the only image file format quickcap writes.
 
+**Documents\quickcap\quickcap_log.txt** contains timestamped warnings, errors,
+panic details, and major events such as startup, shutdown, and saved captures.
+It appends across launches. Audio endpoint failures, audio interruptions, and
+frames skipped under load are logged; routine hover, countdown ticks, and
+individual frames are not. Dependencies log warnings and errors only. If the
+log cannot be opened, startup reports the problem; a later write failure is
+reported once per session. The log includes local file paths, so review it before
+sharing it.
+
 ## Output and audio
 
 - Aspect-preserving downscale to fit 1920×1080; smaller displays are never upscaled.

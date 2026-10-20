@@ -1,6 +1,7 @@
 mod app;
 mod audio;
 mod capture;
+mod logging;
 mod media;
 mod paths;
 mod recording;
@@ -25,10 +26,23 @@ pub fn show_error(text: &str) {
 }
 
 pub fn run() -> anyhow::Result<()> {
+    logging::init(&paths::output_dir()?.join("quickcap_log.txt"))?;
+    log::info!("quickcap {} started", env!("CARGO_PKG_VERSION"));
+    let result = run_inner();
+    match &result {
+        Ok(()) => log::info!("Stopped"),
+        Err(error) => log::error!("Fatal error: {error:#}"),
+    }
+    log::logger().flush();
+    result
+}
+
+fn run_inner() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args_os().collect();
     if args.len() > 1 {
         let mode = args[1].to_string_lossy();
         if mode == "--smoke-test" || mode == "--capture-test" {
+            log::info!("Diagnostic mode: {mode}");
             let folder = args
                 .get(2)
                 .ok_or_else(|| anyhow::anyhow!("Expected test output directory"))?;

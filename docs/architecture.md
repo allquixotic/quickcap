@@ -22,6 +22,14 @@ which can stay closed while hotkeys operate. Thread messages use bounded channel
 for frame/audio data, and Slint's event-loop proxy for control events; no async
 network runtime is needed.
 
+A small `log` sink appends to `Documents/quickcap/quickcap_log.txt` before UI or
+configuration startup. It serializes complete lines across threads, writes
+directly to the file without a user-space buffer, and records local time,
+severity, and process ID. Application info is limited to major lifecycle and
+capture events; dependency info/debug is filtered out. Audio packet loss and
+video skips are summarized per recording. The panic hook writes before the
+release build aborts. No extra logging thread or runtime is required.
+
 The tray uses version-4 notifications for mouse and keyboard activation. Hover
 opens the existing Slint controls without activation; clicking or choosing Help
 keeps them open. A timer checks the icon and full window bounds only while a

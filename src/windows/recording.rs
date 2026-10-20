@@ -39,6 +39,12 @@ pub fn record(
     drop(grabber);
     let epoch_qpc = audio::clock_100ns()?;
     let epoch = Instant::now();
+    log::info!(
+        "Recording started: {}; {}x{} at {FPS} fps",
+        partial.display(),
+        w,
+        h
+    );
     let mut audio = Audio::start(epoch_qpc);
     let capture_stop = Arc::new(AtomicBool::new(false));
     let end = capture_stop.clone();
@@ -93,6 +99,12 @@ pub fn record(
         Ok(())
     })();
     let duration = epoch.elapsed();
+    if dropped > 0 {
+        log::warn!(
+            "Video skipped {dropped} frames under load in {:.1} seconds",
+            duration.as_secs_f64()
+        );
+    }
     capture_stop.store(true, Ordering::Release);
     let capture_result = capture
         .join()
@@ -124,6 +136,11 @@ pub fn record(
     );
     // Windows rename fails if destination already exists; never overwrite.
     std::fs::rename(&partial, &path).context("Publish completed MP4")?;
+    log::info!(
+        "Saved {}; {:.1} seconds",
+        path.display(),
+        duration.as_secs_f64()
+    );
     Ok(Outcome {
         path,
         warnings,
