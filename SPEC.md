@@ -39,7 +39,7 @@ id|status|task|cites
 T1|x|Config, geometry, timeline/state core + named unit tests|V1,V2,V3,V5
 T2|x|GDI capture, clipboard/JPEG, WASAPI mix, software MP4 + smoke test|V1,V4,V5,V6,V7,I.test
 T3|x|Tray/hotkeys, region selection, Slint controls, countdown + shutdown|V2,V3,V6,V7,V9,I.ui,I.tray
-T4|~|CI/signing/docs; Windows build, media decode + desktop validation|V4,V7,V8,I.release
+T4|x|CI/signing/docs; Windows build, media decode + desktop validation|V4,V7,V8,I.release
 
 ## §B BUGS
 id|date|cause|fix

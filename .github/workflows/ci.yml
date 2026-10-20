@@ -1,0 +1,40 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked --all-targets
+      - run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - name: Exercise software encoders
+        shell: pwsh
+        run: |
+          & .\target\x86_64-pc-windows-msvc\release\quickcap.exe --smoke-test "$env:RUNNER_TEMP\quickcap-smoke"
+          if ($LASTEXITCODE -ne 0) { throw 'Native media smoke test failed' }
+          Get-Content "$env:RUNNER_TEMP\quickcap-smoke\result.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: quickcap-windows-x64-unsigned
+          path: target/x86_64-pc-windows-msvc/release/quickcap.exe
+          if-no-files-found: error
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - run: cargo test --locked --lib
