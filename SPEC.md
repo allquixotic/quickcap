@@ -48,7 +48,7 @@ T4|x|CI/signing/docs; Windows build, media decode + desktop validation|V4,V7,V8,
 T5|x|Use Ctrl+Alt+Shift+1–6 defaults; update docs and verify bindings|V2,I.hotkeys,I.config
 T6|x|Tray hover/click hotkey popup, Explorer config reveal, Exit/About/Help menu|V2,V3,V6,V7,V11,V12,I.tray,I.ui,I.config
 T7|x|Concise persistent diagnostic log; native append/filter/concurrency/failure and desktop verification|V5,V6,V7,V13,I.log,I.files
-T8|~|Publish public repository; configure Windows CI, Azure OIDC and initial signed release|V4,V7,V8,V14,I.release
+T8|x|Publish public repository; configure Windows CI, Azure OIDC and initial signed release|V4,V7,V8,V14,I.release
 
 ## §B BUGS
 id|date|cause|fix

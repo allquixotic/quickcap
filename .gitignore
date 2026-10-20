@@ -2,3 +2,4 @@
 /dist/
 *.partial.mp4
 *.log
+.DS_Store
