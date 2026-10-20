@@ -1,0 +1,40 @@
+[package]
+name = "quickcap"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-only"
+description = "Small, CPU-only Windows screenshots and screen recordings"
+repository = "https://github.com/allquixotic/quickcap"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+
+[target.'cfg(windows)'.dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-18"] }
+jpeg-encoder = "0.6"
+windows = { version = "0.62", features = [
+    "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio",
+    "Win32_Media_MediaFoundation", "Win32_Media_KernelStreaming",
+    "Win32_System_Com", "Win32_System_Com_StructuredStorage",
+    "Win32_System_LibraryLoader", "Win32_System_Memory",
+    "Win32_System_Threading", "Win32_System_Variant", "Win32_System_SystemInformation",
+    "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Security"
+] }
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

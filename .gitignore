@@ -1,0 +1,4 @@
+/target/
+/dist/
+*.partial.mp4
+*.log
