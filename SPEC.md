@@ -13,7 +13,7 @@ Small portable Windows x64 tray tool: JPEG screenshots, H.264 + MP3 MP4 recordin
 - Public source GPL-3.0-only; release pipeline Azure signing, no unsigned release fallback.
 
 ## §I INTERFACES
-- I.hotkeys: Ctrl+Alt+Shift+F1/F2 = desktop clipboard/file; F3/F4 = region clipboard/file; F5/F6 = desktop/region video. Desktop = entire virtual desktop.
+- I.hotkeys: Ctrl+Alt+Shift+1/2 = desktop clipboard/file; 3/4 = region clipboard/file; 5/6 = desktop/region video. Ctrl+Alt+Shift applies to all six number-row keys. Desktop = entire virtual desktop.
 - I.config: `%USERPROFILE%/.config/quickcap/config.json`; validated JSON, editable hotkeys; tray reload.
 - I.files: Windows Documents known folder `/quickcap`; timestamped collision-safe `.jpg`/`.mp4`; `.partial.mp4` until successful finalization.
 - I.tray: resident icon, red recording indicator, status/open folder/config/reload/stop/quit menu. Explorer restart recovery.
@@ -40,6 +40,7 @@ T1|x|Config, geometry, timeline/state core + named unit tests|V1,V2,V3,V5
 T2|x|GDI capture, clipboard/JPEG, WASAPI mix, software MP4 + smoke test|V1,V4,V5,V6,V7,I.test
 T3|x|Tray/hotkeys, region selection, Slint controls, countdown + shutdown|V2,V3,V6,V7,V9,I.ui,I.tray
 T4|x|CI/signing/docs; Windows build, media decode + desktop validation|V4,V7,V8,I.release
+T5|x|Use Ctrl+Alt+Shift+1–6 defaults; update docs and verify bindings|V2,I.hotkeys,I.config
 
 ## §B BUGS
 id|date|cause|fix

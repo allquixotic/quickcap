@@ -15,12 +15,14 @@ Server and ARM64 are outside the support target.
 
 | Default hotkey | Action |
 | --- | --- |
-| Ctrl+Alt+Shift+F1 | Entire virtual desktop → clipboard |
-| Ctrl+Alt+Shift+F2 | Entire virtual desktop → JPEG file |
-| Ctrl+Alt+Shift+F3 | Drag a region → clipboard |
-| Ctrl+Alt+Shift+F4 | Drag a region → JPEG file |
-| Ctrl+Alt+Shift+F5 | Record entire virtual desktop |
-| Ctrl+Alt+Shift+F6 | Drag a region, then record it |
+| Ctrl+Alt+Shift+1 | Entire virtual desktop → clipboard |
+| Ctrl+Alt+Shift+2 | Entire virtual desktop → JPEG file |
+| Ctrl+Alt+Shift+3 | Drag a region → clipboard |
+| Ctrl+Alt+Shift+4 | Drag a region → JPEG file |
+| Ctrl+Alt+Shift+5 | Record entire virtual desktop |
+| Ctrl+Alt+Shift+6 | Drag a region, then record it |
+
+The numeric shortcuts use the number row.
 
 Recording starts after a **3, 2, 1** countdown. Press **either video hotkey**
 during countdown to cancel, or while recording to **stop and save**. Escape
@@ -70,12 +72,12 @@ On first launch quickcap creates:
 ```json
 {
   "hotkeys": {
-    "desktop_clipboard": "Ctrl+Alt+Shift+F1",
-    "desktop_file": "Ctrl+Alt+Shift+F2",
-    "region_clipboard": "Ctrl+Alt+Shift+F3",
-    "region_file": "Ctrl+Alt+Shift+F4",
-    "desktop_video": "Ctrl+Alt+Shift+F5",
-    "region_video": "Ctrl+Alt+Shift+F6"
+    "desktop_clipboard": "Ctrl+Alt+Shift+1",
+    "desktop_file": "Ctrl+Alt+Shift+2",
+    "region_clipboard": "Ctrl+Alt+Shift+3",
+    "region_file": "Ctrl+Alt+Shift+4",
+    "desktop_video": "Ctrl+Alt+Shift+5",
+    "region_video": "Ctrl+Alt+Shift+6"
   }
 }
 ```
@@ -84,6 +86,8 @@ Edit the file, then choose **Reload hotkeys**. Keys may be A–Z, 0–9, or F1�
 modifiers are Ctrl, Alt, Shift, and Win. At least Ctrl, Alt, or Win is required.
 Duplicates and unknown fields are errors. Invalid files are never silently
 replaced with defaults. A failed registration restores the prior active bindings.
+Upgrades preserve existing hotkeys. To adopt these defaults with an older config,
+update its six hotkey values to match the example, then reload.
 
 ## Build and verify
 

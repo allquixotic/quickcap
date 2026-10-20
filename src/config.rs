@@ -30,7 +30,7 @@ pub struct Hotkeys {
 
 impl Default for Config {
     fn default() -> Self {
-        let key = |n| format!("Ctrl+Alt+Shift+F{n}");
+        let key = |n| format!("Ctrl+Alt+Shift+{n}");
         Self {
             hotkeys: Hotkeys {
                 desktop_clipboard: key(1),
@@ -148,13 +148,13 @@ impl Binding {
 mod tests {
     use super::*;
     #[test]
-    fn defaults_are_unique_and_avoid_snipping_keys() {
+    fn defaults_use_number_row_with_all_three_modifiers() {
         let b = Config::default().bindings().unwrap();
         assert_eq!(b.len(), 6);
-        assert!(
-            b.iter()
-                .all(|b| b.modifiers == 7 && (0x70..=0x75).contains(&b.key))
-        );
+        for (binding, key) in b.iter().zip(b'1'..=b'6') {
+            assert_eq!(binding.modifiers, 7);
+            assert_eq!(binding.key, u32::from(key));
+        }
     }
     #[test]
     fn duplicate_and_malformed_bindings_rejected() {

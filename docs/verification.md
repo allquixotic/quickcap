@@ -25,6 +25,9 @@ Completed checks:
   countdown, desktop and region MP4, stopping with the other video hotkey,
   cancellation and restart of selection, opening and closing Slint controls to
   the tray, graceful exit.
+- Repeated the full desktop interaction test after switching the defaults to
+  Ctrl+Alt+Shift+1–6. A fresh config contained the number-row bindings, and all
+  six shortcuts and cross-hotkey stop/save passed.
 - Observed tray readiness: approximately 44–150 ms in these VM runs; not a guaranteed
   startup bound across machines.
 - PE imports contain only Windows DLLs. No D3D/Vulkan/OpenGL import, FFmpeg, codec
