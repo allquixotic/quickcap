@@ -26,10 +26,20 @@ The numeric shortcuts use the number row.
 
 Recording starts after a **3, 2, 1** countdown. Press **either video hotkey**
 during countdown to cancel, or while recording to **stop and save**. Escape
-cancels region selection. The tray icon turns red during recording. Right-click
-it for controls; left-click opens the Slint window. Closing that window keeps the
-process running. Exit from the tray or control window to stop it; an active
-recording is finalized before exit.
+cancels region selection. The tray icon turns red during recording.
+
+Hover over the tray icon to see the current hotkeys in a Slint popup without
+taking keyboard focus. Move into the popup to use its buttons; it closes after
+the pointer leaves both the icon and popup. Clicking the popup keeps it open.
+Hover previews are suppressed during region selection, countdown, and saving.
+Left-click the icon to keep the same controls open. **Show config.json in File
+Explorer** opens its containing folder with the file selected. Edit the file,
+then click **Reload hotkeys** to apply and display the new bindings.
+
+Right-click the icon for **Exit**, **About**, and **Help**. Help opens the same
+window as left-click; About shows the version, license, and project address.
+Closing either Slint window keeps the process running. Exit from the tray or
+control window to stop it; an active recording is finalized before exit.
 
 These defaults avoid Windows Snipping Tool and SnagIt's default shortcuts, but
 another application can still reserve them. A registration conflict is reported.
@@ -130,6 +140,11 @@ session; it sends real keyboard/mouse input, creates captures, tests all six
 hotkeys, and exits the instance it launched. Do not run other capture tests at
 the same time. See [verification notes](docs/verification.md) for tested behavior
 and remaining validation limits.
+
+The `tray_verify` example tests hover focus/dismissal, left-click help, the config
+button's Explorer selection, and the Exit/About/Help menu. Run `tray_verify.exe
+C:\path\quickcap.exe C:\Temp\quickcap-tray` in the same way; it also saves JPEG
+previews of Help and About. Run interaction tests one at a time.
 
 See [release setup](docs/releasing.md) for Azure signing and
 [architecture](docs/architecture.md) for threading, resource ownership, and limits.

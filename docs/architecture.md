@@ -8,6 +8,7 @@ framework, or network code.
 | --- | --- |
 | Main | Slint/winit software UI, state transitions, async event dispatch |
 | Native shell | Tray messages, hotkey registration, Explorer restart handling |
+| Temporary Explorer worker | STA COM path parsing and config-file selection in Explorer |
 | Temporary selector | Frozen desktop overlay; physical coordinates and mouse selection |
 | Recording | Media Foundation sink writer, interleaving samples, MP4 finalization |
 | Capture | GDI downscale, cursor composition, parallel RGB→NV12 conversion |
@@ -20,6 +21,12 @@ renderer is compiled. The native hidden window remains independent of the UI,
 which can stay closed while hotkeys operate. Thread messages use bounded channels
 for frame/audio data, and Slint's event-loop proxy for control events; no async
 network runtime is needed.
+
+The tray uses version-4 notifications for mouse and keyboard activation. Hover
+opens the existing Slint controls without activation; clicking or choosing Help
+keeps them open. A timer checks the icon and full window bounds only while a
+hover preview is visible, allowing the pointer to move into it before dismissal.
+About is created on first use. Both windows use the same explicit light palette.
 
 Capture uses a top-down GDI DIB at final dimensions. `StretchBlt` with HALFTONE
 performs the downscale before copying pixels into Rust-owned memory. RGB→NV12 uses

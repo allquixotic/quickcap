@@ -134,6 +134,22 @@ mod verify {
         // SAFETY: This read-only OS query has no pointer parameters.
         unsafe { GetClipboardSequenceNumber() }
     }
+    fn controls_window(pid: u32) -> Option<HWND> {
+        let mut after = None;
+        // SAFETY: Only accept visible windows owned by the child, not an
+        // Explorer folder that happens to have the same quickcap title.
+        unsafe {
+            while let Ok(hwnd) = FindWindowExW(None, after, None, w!("quickcap")) {
+                let mut owner = 0;
+                GetWindowThreadProcessId(hwnd, Some(&mut owner));
+                if owner == pid && IsWindowVisible(hwnd).as_bool() {
+                    return Some(hwnd);
+                }
+                after = Some(hwnd);
+            }
+        }
+        None
+    }
     fn status(hwnd: HWND) -> String {
         let mut buf = [0u16; 2048];
         // SAFETY: GetWindowTextW bounds its write to this initialized slice.
@@ -255,8 +271,7 @@ mod verify {
         let mut controls = None;
         wait(
             || {
-                // SAFETY: Constant title, read-only lookup of the test application's UI.
-                controls = unsafe { FindWindowW(None, w!("quickcap")) }.ok();
+                controls = controls_window(process.0.id());
                 controls.is_some()
             },
             5,

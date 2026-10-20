@@ -14,7 +14,7 @@ serde_json = "1"
 rayon = "1"
 
 [target.'cfg(windows)'.dependencies]
-slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-18"] }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "compat-1-18", "unstable-winit-030"] }
 jpeg-encoder = "0.6"
 windows = { version = "0.62", features = [
     "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio",
@@ -23,7 +23,7 @@ windows = { version = "0.62", features = [
     "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_DataExchange",
     "Win32_System_Threading", "Win32_System_Performance", "Win32_System_Variant", "Win32_System_SystemInformation",
     "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Security"
+    "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_Security"
 ] }
 
 [profile.release]
@@ -32,6 +32,9 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = ["Win32_System_Ole"] }
 
 # Keep the toolkit/dependencies compact, but optimize our pixel and audio loops.
 [profile.release.package."*"]

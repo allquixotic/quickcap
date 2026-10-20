@@ -28,7 +28,10 @@ pub fn output_dir() -> Result<PathBuf> {
     Ok(path)
 }
 pub fn config_file() -> Result<PathBuf> {
-    Ok(known_folder(&FOLDERID_Profile)?.join(".config/quickcap/config.json"))
+    Ok(known_folder(&FOLDERID_Profile)?
+        .join(".config")
+        .join("quickcap")
+        .join("config.json"))
 }
 
 pub fn reserve(folder: &Path, extension: &str) -> Result<(PathBuf, File)> {

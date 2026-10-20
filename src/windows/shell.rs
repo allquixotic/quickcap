@@ -24,12 +24,14 @@ use windows::{
 const WAKE: u32 = WM_APP + 1;
 const TRAY: u32 = WM_APP + 2;
 const ICON_ID: u32 = 1;
+const NIN_KEYSELECT: u32 = NIN_SELECT | NINF_KEY;
 pub const SHOW: u32 = 100;
 pub const FOLDER: u32 = 101;
 pub const CONFIG: u32 = 102;
 pub const RELOAD: u32 = 103;
 pub const STOP: u32 = 104;
 pub const QUIT: u32 = 105;
+pub const ABOUT: u32 = 106;
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -37,6 +39,8 @@ pub enum Event {
     Menu(u32),
     Error(String),
     Reloaded,
+    Hover(bool),
+    MenuOpening,
 }
 enum Command {
     Status(bool, String),
@@ -78,6 +82,56 @@ impl Shell {
     }
     pub fn reload(&self, bindings: Vec<Binding>) {
         self.send(Command::Reload(bindings));
+    }
+    pub fn pointer_over_icon(&self) -> bool {
+        let identifier = NOTIFYICONIDENTIFIER {
+            cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
+            hWnd: HWND(self.hwnd as *mut _),
+            uID: ICON_ID,
+            ..Default::default()
+        };
+        // SAFETY: Read-only queries; the returned rectangle is owned locally.
+        unsafe {
+            Shell_NotifyIconGetRect(&identifier).is_ok_and(|rect| {
+                pointer_inside(
+                    rect.left,
+                    rect.top,
+                    (rect.right - rect.left).max(0) as u32,
+                    (rect.bottom - rect.top).max(0) as u32,
+                )
+            })
+        }
+    }
+    pub fn popup_position(&self, width: u32, height: u32) -> Option<(i32, i32)> {
+        let identifier = NOTIFYICONIDENTIFIER {
+            cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
+            hWnd: HWND(self.hwnd as *mut _),
+            uID: ICON_ID,
+            ..Default::default()
+        };
+        // SAFETY: All structures are initialized; Shell resolves our live icon.
+        // Windows constrains the popup to the icon's monitor work area.
+        unsafe {
+            let icon = Shell_NotifyIconGetRect(&identifier).ok()?;
+            let anchor = POINT {
+                x: icon.right,
+                y: icon.top,
+            };
+            let size = SIZE {
+                cx: width as i32,
+                cy: height as i32,
+            };
+            let mut position = RECT::default();
+            CalculatePopupWindowPosition(
+                &anchor,
+                &size,
+                (TPM_RIGHTALIGN | TPM_BOTTOMALIGN | TPM_WORKAREA).0,
+                Some(&icon),
+                &mut position,
+            )
+            .ok()?;
+            Some((position.left, position.top))
+        }
     }
 }
 impl Drop for Shell {
@@ -185,6 +239,12 @@ fn tray(hwnd: HWND, state: &State, operation: NOTIFY_ICON_MESSAGE) {
     unsafe {
         let _ = SetWindowTextW(hwnd, PCWSTR(wide(&state.status).as_ptr()));
         let _ = Shell_NotifyIconW(operation, &data);
+        if operation == NIM_ADD {
+            // Version 4 supplies native hover notifications and keyboard activation.
+            // It must be restored after Explorer recreates the icon as well.
+            data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+            let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
+        }
     }
 }
 
@@ -291,18 +351,23 @@ unsafe extern "system" fn window_proc(
                     true
                 }
                 TRAY => {
-                    match lparam.0 as u32 {
-                        WM_LBUTTONUP | WM_LBUTTONDBLCLK => (state.notify)(Event::Menu(SHOW)),
-                        WM_RBUTTONUP | WM_CONTEXTMENU => {
+                    // Version 4 packs the icon ID in HIWORD and event in LOWORD.
+                    if ((lparam.0 as u32 >> 16) & 0xffff) != ICON_ID {
+                        return true;
+                    }
+                    match lparam.0 as u32 & 0xffff {
+                        // Mouse movement opens the preview promptly; the native
+                        // rich-tooltip event covers keyboard/accessibility hover.
+                        // Dismissal checks actual pointer geometry in both cases.
+                        NIN_POPUPOPEN | WM_MOUSEMOVE => (state.notify)(Event::Hover(true)),
+                        NIN_POPUPCLOSE => (state.notify)(Event::Hover(false)),
+                        NIN_SELECT | NIN_KEYSELECT => (state.notify)(Event::Menu(SHOW)),
+                        WM_CONTEXTMENU => {
+                            (state.notify)(Event::MenuOpening);
                             if let Ok(menu) = CreatePopupMenu() {
-                                for (id, label) in [
-                                    (SHOW, "Open quickcap"),
-                                    (FOLDER, "Open captures folder"),
-                                    (CONFIG, "Edit config.json"),
-                                    (RELOAD, "Reload hotkeys"),
-                                    (STOP, "Stop / cancel recording"),
-                                    (QUIT, "Exit quickcap"),
-                                ] {
+                                for (id, label) in
+                                    [(QUIT, "Exit"), (ABOUT, "About"), (SHOW, "Help")]
+                                {
                                     let _ = AppendMenuW(
                                         menu,
                                         MF_STRING,
@@ -384,6 +449,47 @@ unsafe extern "system" fn window_proc(
     } else {
         // SAFETY: Forwarding an unhandled message with original parameters.
         unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+    }
+}
+
+pub fn pointer_inside(x: i32, y: i32, width: u32, height: u32) -> bool {
+    let mut point = POINT::default();
+    // SAFETY: GetCursorPos writes one initialized POINT; no retained pointers.
+    (unsafe { GetCursorPos(&mut point).is_ok() })
+        && point.x >= x
+        && point.y >= y
+        && i64::from(point.x) < i64::from(x) + i64::from(width)
+        && i64::from(point.y) < i64::from(y) + i64::from(height)
+}
+
+/// Reveal an absolute filesystem path without command-line quoting or file associations.
+/// Called on a worker so starting Explorer cannot stall the UI thread.
+pub fn reveal(path: &std::path::Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::System::Com::*;
+    // Rust accepts mixed separators, but the Shell namespace parser does not.
+    let native_path: std::path::PathBuf = path.components().collect();
+    let path: Vec<u16> = native_path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: This worker owns its COM apartment. The Shell-allocated PIDL is
+    // freed after the synchronous call, and every successful init is balanced.
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+            .ok()
+            .context("Initialize Explorer worker")?;
+        let result = (|| -> Result<()> {
+            let mut item = std::ptr::null_mut();
+            SHParseDisplayName(PCWSTR(path.as_ptr()), None, &mut item, 0, None)
+                .with_context(|| format!("Resolve {} in Explorer", native_path.display()))?;
+            let result = SHOpenFolderAndSelectItems(item, None, 0);
+            CoTaskMemFree(Some(item.cast()));
+            result.context("Could not reveal config.json in Explorer")
+        })();
+        CoUninitialize();
+        result
     }
 }
 

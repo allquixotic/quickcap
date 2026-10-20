@@ -28,6 +28,17 @@ Completed checks:
 - Repeated the full desktop interaction test after switching the defaults to
   Ctrl+Alt+Shift+1–6. A fresh config contained the number-row bindings, and all
   six shortcuts and cross-hotkey stop/save passed.
+- `examples/tray_verify.rs` exercised native mouse hover over the actual tray
+  icon, opening Windows' hidden-icon panel when necessary. Hover preserved
+  foreground focus, remained visible at the popup's bottom edge, and dismissed
+  after the pointer left. Left-click help stayed open.
+- The config button opened File Explorer; Shell COM confirmed that the exact
+  `config.json` file was selected. Mouse clicks exercised all three native menu
+  items: Help, About, and Exit. Opening the menu hid Slint windows so they could
+  not cover it. Closing Help/About retained the tray process.
+- Help and About JPEG previews were visually checked on dark-mode Windows.
+  Both use a consistent light palette with readable buttons. All 13 Windows
+  tests and the full capture interaction test passed again after the UI changes.
 - Observed tray readiness: approximately 44–150 ms in these VM runs; not a guaranteed
   startup bound across machines.
 - PE imports contain only Windows DLLs. No D3D/Vulkan/OpenGL import, FFmpeg, codec

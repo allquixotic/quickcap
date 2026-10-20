@@ -8,7 +8,13 @@ use crate::{
     state::{Phase, VideoAction},
 };
 use anyhow::Result;
-use slint::ComponentHandle;
+use slint::{
+    ComponentHandle,
+    winit_030::{
+        WinitWindowAccessor,
+        winit::{event::WindowEvent, window::WindowLevel},
+    },
+};
 use std::{
     cell::RefCell,
     path::PathBuf,
@@ -18,24 +24,33 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 slint::slint! {
-    import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+    import { Button, VerticalBox, HorizontalBox, Palette } from "std-widgets.slint";
     export component Controls inherits Window {
         title: "quickcap";
-        width: 480px;
-        height: 530px;
+        width: 540px;
+        height: 600px;
         background: #f3f3f3;
         in property <string> status: "Ready";
         in property <string> bindings;
         in property <bool> busy: false;
         callback action(int);
+        init => { Palette.color-scheme = ColorScheme.light; }
         VerticalBox {
             padding: 16px;
-            spacing: 10px;
+            spacing: 8px;
             Text { text: "quickcap"; font-size: 24px; font-weight: 700; color: #151515; }
+            Text { text: "Current hotkeys"; font-weight: 700; color: #151515; }
+            Text { text: root.bindings; font-size: 13px; color: #454545; }
+            Button { text: "Show config.json in File Explorer"; clicked => { root.action(102); } }
+            HorizontalBox {
+                Button { text: "Captures"; clicked => { root.action(101); } }
+                Button { text: "Reload hotkeys"; clicked => { root.action(103); } }
+                Button { text: "Exit"; clicked => { root.action(105); } }
+            }
             Text { text: root.status; wrap: word-wrap; color: #151515; min-height: 50px; }
             Text { text: "JPEG screenshots · H.264 + MP3 recordings"; color: #454545; }
             HorizontalBox {
@@ -51,14 +66,23 @@ slint::slint! {
                 Button { text: "Record region"; enabled: !root.busy; clicked => { root.action(5); } }
             }
             Button { text: "Stop / cancel recording"; enabled: root.busy; clicked => { root.action(104); } }
-            Text { text: root.bindings; font-size: 12px; color: #454545; }
-            HorizontalBox {
-                Button { text: "Captures"; clicked => { root.action(101); } }
-                Button { text: "Config"; clicked => { root.action(102); } }
-                Button { text: "Reload"; clicked => { root.action(103); } }
-                Button { text: "Exit"; clicked => { root.action(105); } }
-            }
             Text { text: "Close this window to keep quickcap in the tray."; color: #454545; font-size: 12px; }
+        }
+    }
+    export component About inherits Window {
+        title: "About quickcap";
+        width: 440px;
+        height: 230px;
+        background: #f3f3f3;
+        in property <string> details;
+        callback dismiss();
+        init => { Palette.color-scheme = ColorScheme.light; }
+        VerticalBox {
+            padding: 16px;
+            spacing: 12px;
+            Text { text: "quickcap"; font-size: 24px; font-weight: 700; color: #151515; }
+            Text { text: root.details; wrap: word-wrap; color: #151515; }
+            Button { text: "Close"; clicked => { root.dismiss(); } }
         }
     }
 }
@@ -71,9 +95,13 @@ enum Message {
     RecordingStarted,
     Recorded(Result<recording::Outcome>),
     Screenshot(Result<String>),
+    CheckHover,
+    PinControls,
+    ConfigRevealed(Result<()>),
 }
 struct App {
     ui: Controls,
+    about: Option<About>,
     shell: Shell,
     config: Config,
     pending_config: Option<Config>,
@@ -86,6 +114,9 @@ struct App {
     recording: Option<JoinHandle<()>>,
     screenshots: Vec<JoinHandle<()>>,
     quitting: bool,
+    hover_preview: bool,
+    hover_last_inside: Instant,
+    hover_timer: slint::Timer,
 }
 thread_local! {static APP:RefCell<Option<Rc<RefCell<App>>>>=const{RefCell::new(None)};}
 
@@ -112,6 +143,7 @@ pub fn run() -> Result<()> {
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name("software".into())
+        .with_winit_window_attributes_hook(|attributes| attributes.with_active(false))
         .select()?;
     let ui = Controls::new()?;
     ui.on_action(|action| {
@@ -128,12 +160,19 @@ pub fn run() -> Result<()> {
         }
         slint::CloseRequestResponse::KeepWindowShown
     });
+    ui.window().on_winit_window_event(|_, event| {
+        if matches!(event, WindowEvent::Focused(true)) {
+            post(Message::PinControls);
+        }
+        slint::winit_030::EventResult::Propagate
+    });
     let shell = Shell::start(
         config.bindings()?,
         Arc::new(|event| post(Message::Shell(event))),
     )?;
     let app = App {
         ui,
+        about: None,
         shell,
         config,
         pending_config: None,
@@ -146,6 +185,9 @@ pub fn run() -> Result<()> {
         recording: None,
         screenshots: Vec::new(),
         quitting: false,
+        hover_preview: false,
+        hover_last_inside: Instant::now(),
+        hover_timer: slint::Timer::default(),
     };
     app.update_bindings();
     app.status("Ready — use a hotkey or click the tray icon.");
@@ -160,6 +202,110 @@ pub fn run() -> Result<()> {
 }
 
 impl App {
+    fn pin_controls(&mut self) {
+        self.hover_preview = false;
+        self.hover_timer.stop();
+    }
+    fn controls_size(&self) -> (u32, u32) {
+        self.ui
+            .window()
+            .with_winit_window(|window| {
+                let size = window.outer_size();
+                (size.width, size.height)
+            })
+            .unwrap_or_else(|| {
+                let size = self.ui.window().size();
+                (size.width, size.height)
+            })
+    }
+    fn show_controls(&mut self, preview: bool) -> Result<()> {
+        if preview && self.ui.window().is_visible() {
+            return Ok(());
+        }
+        if !preview {
+            self.pin_controls();
+        }
+        if !self.ui.window().is_visible() {
+            self.hover_preview = preview;
+            self.ui.show()?;
+            let (width, height) = self.controls_size();
+            if let Some((x, y)) = self.shell.popup_position(width, height) {
+                self.ui
+                    .window()
+                    .set_position(slint::PhysicalPosition::new(x, y));
+            }
+            if preview {
+                self.hover_last_inside = Instant::now();
+                self.hover_timer.start(
+                    slint::TimerMode::Repeated,
+                    Duration::from_millis(150),
+                    || dispatch(Message::CheckHover),
+                );
+            }
+        }
+        self.ui.window().with_winit_window(|window| {
+            window.set_window_level(WindowLevel::AlwaysOnTop);
+            if !preview {
+                window.focus_window();
+            }
+        });
+        Ok(())
+    }
+    fn check_hover(&mut self) -> Result<()> {
+        if !self.hover_preview || !self.ui.window().is_visible() {
+            self.pin_controls();
+            return Ok(());
+        }
+        let position = self.ui.window().position();
+        let (width, height) = self.controls_size();
+        if self.shell.pointer_over_icon()
+            || shell::pointer_inside(position.x, position.y, width, height)
+        {
+            self.hover_last_inside = Instant::now();
+        } else if self.hover_last_inside.elapsed() >= Duration::from_millis(600) {
+            self.pin_controls();
+            self.ui.hide()?;
+        }
+        Ok(())
+    }
+    fn show_about(&mut self) -> Result<()> {
+        if self.hover_preview {
+            self.pin_controls();
+            self.ui.hide()?;
+        }
+        if self.about.is_none() {
+            let about = About::new()?;
+            about.set_details(
+                format!(
+                    "Version {}\nJPEG screenshots and H.264 + MP3 recordings\n\nGPL-3.0-only\n{}",
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_REPOSITORY")
+                )
+                .into(),
+            );
+            let weak = about.as_weak();
+            about.on_dismiss(move || {
+                if let Some(about) = weak.upgrade() {
+                    let _ = about.hide();
+                }
+            });
+            let weak = about.as_weak();
+            about.window().on_close_requested(move || {
+                if let Some(about) = weak.upgrade() {
+                    let _ = about.hide();
+                }
+                slint::CloseRequestResponse::KeepWindowShown
+            });
+            self.about = Some(about);
+        }
+        let about = self.about.as_ref().unwrap();
+        about.show()?;
+        about.window().with_winit_window(|window| {
+            window.set_window_level(WindowLevel::AlwaysOnTop);
+            window.focus_window();
+        });
+        Ok(())
+    }
     fn update_bindings(&self) {
         self.ui.set_bindings(
             self.config
@@ -179,7 +325,7 @@ impl App {
     }
     fn error(&mut self, text: String) {
         self.status(&text);
-        let _ = self.ui.show();
+        let _ = self.show_controls(false);
     }
     fn idle(&mut self, text: &str) {
         self.phase = Phase::Idle;
@@ -187,6 +333,26 @@ impl App {
     }
     fn message(&mut self, message: Message) -> Result<()> {
         match message {
+            Message::PinControls => self.pin_controls(),
+            Message::CheckHover => self.check_hover()?,
+            Message::ConfigRevealed(result) => {
+                result?;
+                self.status(
+                    "Config file shown in File Explorer. Edit it, then click Reload hotkeys.",
+                );
+            }
+            Message::Shell(Event::Hover(inside)) => {
+                if inside && matches!(self.phase, Phase::Idle | Phase::Recording) {
+                    self.show_controls(true)?;
+                }
+            }
+            Message::Shell(Event::MenuOpening) => {
+                self.pin_controls();
+                self.ui.hide()?;
+                if let Some(about) = &self.about {
+                    about.hide()?;
+                }
+            }
             Message::Shell(Event::Hotkey(action)) => self.action(action)?,
             Message::Shell(Event::Error(error)) => {
                 self.pending_config = None;
@@ -200,9 +366,13 @@ impl App {
                 self.status("Hotkeys reloaded");
             }
             Message::Shell(Event::Menu(menu)) => match menu {
-                shell::SHOW => self.ui.show()?,
+                shell::SHOW => self.show_controls(false)?,
+                shell::ABOUT => self.show_about()?,
                 shell::FOLDER => shell::open(&self.folder)?,
-                shell::CONFIG => shell::open(&self.config_path)?,
+                shell::CONFIG => {
+                    let path = self.config_path.clone();
+                    thread::spawn(move || post(Message::ConfigRevealed(shell::reveal(&path))));
+                }
                 shell::RELOAD => {
                     let config = Config::load(&self.config_path)?;
                     self.shell.reload(config.bindings()?);
@@ -324,6 +494,10 @@ impl App {
             return Ok(());
         }
         self.ui.hide()?;
+        self.pin_controls();
+        if let Some(about) = &self.about {
+            about.hide()?;
+        }
         if action == 2 || action == 3 || action == 5 {
             self.generation += 1;
             let generation = self.generation;
@@ -370,7 +544,7 @@ impl App {
         self.phase = Phase::Countdown;
         self.generation += 1;
         self.cancel = Arc::new(AtomicBool::new(false));
-        self.ui.show()?;
+        self.show_controls(false)?;
         let generation = self.generation;
         // The first update is queued to avoid reentering App's RefCell borrow.
         post(Message::Tick(generation, rect, 3));
