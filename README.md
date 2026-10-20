@@ -5,6 +5,10 @@ A small, portable screenshot and screen recording tool for **Windows 11 24H2
 No installer, administrator rights, GPU, background service, codec download,
 FFmpeg, or separately installed runtime is required.
 
+[Download the latest signed Windows x64 release](https://github.com/allquixotic/quickcap/releases/latest).
+Download `quickcap.exe` and run it directly. Release assets also include SHA-256
+checksums and a GitHub provenance bundle.
+
 The UI uses Slint's software renderer. Capture uses GDI. Encoding uses Windows'
 software Media Foundation H.264 and MP3 encoders with hardware transforms disabled.
 All application code is Rust; unsafe code is confined to documented Win32/COM

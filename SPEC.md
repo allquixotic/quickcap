@@ -20,7 +20,7 @@ Small portable Windows x64 tray tool: JPEG screenshots, H.264 + MP3 MP4 recordin
 - I.tray: resident icon, red recording indicator; hover/left click show Slint hotkey controls. Right menu: Exit, About, Help; Help = left click. Explorer restart recovery.
 - I.ui: Slint controls show active hotkeys; config button reveals config.json in Explorer. Hover preview keeps keyboard focus, dismisses after pointer leaves icon and controls; click/Help stays open. About shows version/project/license. Native physical-pixel region selection, Escape cancels; 3/2/1 countdown after selection; either video key cancels countdown or stops+saves recording.
 - I.test: `--smoke-test <directory>` records short synthetic H.264+MP3 clip and JPEG without desktop; `--capture-test <directory>` exercises real GDI/WASAPI in desktop session.
-- I.release: GitHub Actions build/test; signed `quickcap.exe` + checksums on version tag; OIDC Azure configuration documented.
+- I.release: public `allquixotic/quickcap`; Windows-only GitHub Actions build/test; signed `quickcap.exe`, checksums and provenance on version tag; OIDC Azure configuration documented.
 
 ## §V INVARIANTS
 V1: Valid dimensions, aspect retained within even-pixel rounding, no upscale, ≤1920×1080; negative-origin regions supported.
@@ -36,6 +36,7 @@ V10: MP3 PCM submissions ! fixed 1152-sample blocks; final block pads ≤1151 sa
 V11: Tray hover never steals focus or interrupts selection/countdown; preview remains clickable. Left click/Help show current active bindings; config opens Explorer with config.json selected; closing help/About leaves tray running.
 V12: Controls and About use a consistent light palette; enabled buttons remain readable with Windows dark mode. Shell paths use native separators.
 V13: Log preserves earlier sessions and serializes concurrent writes; captures application/dependency warnings/errors, fatal errors/panics, lifecycle and capture results. No per-frame/hover/countdown chatter. Audio loss aggregated; log write failures surfaced once.
+V14: Release tag matches package version and points into main; Windows-only pipeline verifies expected publisher and timestamp, tests signed EXE, hashes signed bytes, and publishes provenance. Signing failure never publishes unsigned fallback.
 
 ## §T TASKS
 id|status|task|cites
@@ -47,6 +48,7 @@ T4|x|CI/signing/docs; Windows build, media decode + desktop validation|V4,V7,V8,
 T5|x|Use Ctrl+Alt+Shift+1–6 defaults; update docs and verify bindings|V2,I.hotkeys,I.config
 T6|x|Tray hover/click hotkey popup, Explorer config reveal, Exit/About/Help menu|V2,V3,V6,V7,V11,V12,I.tray,I.ui,I.config
 T7|x|Concise persistent diagnostic log; native append/filter/concurrency/failure and desktop verification|V5,V6,V7,V13,I.log,I.files
+T8|~|Publish public repository; configure Windows CI, Azure OIDC and initial signed release|V4,V7,V8,V14,I.release
 
 ## §B BUGS
 id|date|cause|fix

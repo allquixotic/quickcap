@@ -1,48 +1,94 @@
-# Publishing signed builds
+# Publishing signed Windows builds
 
-Source destination: `https://github.com/allquixotic/quickcap`.
-Local builds are unsigned; public tag releases must pass Azure signing and
-Authenticode verification. CI never substitutes an unsigned release when signing
-is unavailable. No workflow installs or launches the application persistently.
+Public repository: [allquixotic/quickcap](https://github.com/allquixotic/quickcap).
+The project builds and releases Windows x64 only. `quickcap.exe` is portable;
+there is no installer or adjacent DLL bundle.
 
-Create an Azure Artifact Signing account (formerly Trusted Signing) and a public
-trust certificate profile after identity validation. Assign **Artifact Signing
-Certificate Profile Signer** to an Entra application, scoped to that profile.
-Configure a federated OIDC credential for the GitHub `release` environment:
+## Build and release flow
+
+`ci.yml` runs on main pushes, pull requests, and manual dispatch. It installs
+stable Rust on `windows-2025`, checks formatting and Clippy, runs the unit tests
+and native software encoder tests, builds the executable and desktop test
+drivers, and runs the executable's synthetic media smoke test. Rust dependencies
+are cached. The unsigned executable is retained as a CI artifact for 14 days.
+
+`release.yml` runs when a `v*` tag is pushed, or when manually dispatched against
+an existing tag. It calls the same build workflow, then:
+
+1. Checks that the tag matches `Cargo.toml` and its commit is on `main`.
+2. Downloads that run's executable, then authenticates to Azure through GitHub OIDC.
+3. Signs using Azure Artifact Signing with a SHA-256 digest and RFC 3161 timestamp.
+4. Verifies Authenticode, the expected publisher, and the timestamp certificate.
+5. Runs the synthetic media smoke test on the exact signed executable.
+6. Computes SHA-256 after signing and creates GitHub build provenance.
+7. Publishes `quickcap.exe`, `SHA256SUMS`, and
+   `quickcap-attestation.sigstore.json` with generated release notes.
+
+Failed tests, signing, publisher verification, or attestation stop publication.
+There is no unsigned release fallback. All external Actions are pinned to full
+commits. Pull requests receive read-only permissions and no signing environment.
+Interactive tray and real desktop/audio tests are run separately on Windows 11;
+GitHub's hosted Windows Server runner is build/test infrastructure, not an
+additional supported application platform.
+
+## Configured signing identity
+
+The repository environment `azure-artifact-signing` permits only `v*` tags.
+It uses the existing `allquixotic-signing` account in East US and its
+`windows-public` certificate profile. The Entra application has only the
+**Artifact Signing Certificate Profile Signer** role on that profile.
+
+The repository-specific federated credential is `github-quickcap-release`:
 
 ```text
 issuer: https://token.actions.githubusercontent.com
-subject: repo:allquixotic/quickcap:environment:release
+subject: repo:allquixotic@322644/quickcap@1427316603:environment:azure-artifact-signing
 audience: api://AzureADTokenExchange
 ```
 
-In the GitHub repository, create environment `release` and restrict it to release
-tags. Store these environment secrets:
+GitHub includes immutable owner and repository IDs in this repository's subject.
+For a fork or replacement repository, read its actual `sub_claim_prefix` with
+`gh api repos/OWNER/REPO/actions/oidc/customization/sub` before configuring trust.
+Do not copy the quickcap subject to another repository.
 
-| Secret | Value |
+These environment variables contain identifiers and policy, not credentials:
+
+| Variable | Meaning |
 | --- | --- |
 | `AZURE_CLIENT_ID` | Entra application/client ID |
 | `AZURE_TENANT_ID` | Tenant ID |
 | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
+| `AZURE_SIGNING_ENDPOINT` | `https://eus.codesigning.azure.net/` |
+| `AZURE_SIGNING_ACCOUNT` | `allquixotic-signing` |
+| `AZURE_CERTIFICATE_PROFILE` | `windows-public` |
+| `WINDOWS_PUBLISHER` | Exact approved certificate subject |
 
-Store these environment variables:
+No client secret or signing private key is stored in GitHub. Signing keys stay
+in Azure. Local developer builds are unsigned.
 
-| Variable | Value |
-| --- | --- |
-| `AZURE_SIGNING_ENDPOINT` | Regional signing endpoint, e.g. `https://eus.codesigning.azure.net/` |
-| `AZURE_SIGNING_ACCOUNT` | Artifact Signing account name |
-| `AZURE_CERTIFICATE_PROFILE` | Public certificate profile name |
+## Publish the next version
 
-The workflow uses GitHub OIDC and Azure CLI credentials; no long-lived client
-secret is stored. Third-party actions are pinned to full commits. Regular pull
-requests have read-only permissions and cannot access the signing environment.
+Update the package version in `Cargo.toml` and `Cargo.lock`, commit and push to
+`main`, then wait for its Windows checks to pass. After a Windows 11 desktop
+smoke test, push the matching tag:
 
-After CI and a desktop smoke test pass, bump `Cargo.toml` and `Cargo.lock`, commit,
-and push a matching `vX.Y.Z` tag. The release job checks tag/package agreement,
-signs the single executable with an RFC 3161 timestamp, checks Authenticode status,
-calculates SHA-256 **after signing**, and attaches `quickcap.exe` and `SHA256SUMS`
-to the GitHub release. A zip or adjacent DLLs are unnecessary.
+```text
+git tag -a vX.Y.Z -m "quickcap X.Y.Z"
+git push origin vX.Y.Z
+```
+
+To retry a failed release, rerun its workflow against the same tag after fixing
+external configuration. Code or workflow fixes should use a new version and tag
+if a release has already been published.
+
+Consumers can compare the executable against `SHA256SUMS`, inspect its Windows
+Digital Signatures properties, and verify GitHub provenance:
+
+```text
+gh attestation verify quickcap.exe --repo allquixotic/quickcap
+```
 
 Official references: [Azure signing action](https://github.com/Azure/artifact-signing-action),
 [OpenID Connect setup](https://github.com/Azure/login#login-with-openid-connect-oidc-recommended),
+[GitHub OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc),
 [Media Foundation MP4 support](https://learn.microsoft.com/en-us/windows/win32/medfound/mpeg-4-file-sink).

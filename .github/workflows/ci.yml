@@ -1,40 +1,57 @@
-name: Build and test
+name: Windows build and test
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
 
 permissions:
   contents: read
 
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
+  CARGO_INCREMENTAL: 0
+
 jobs:
   windows:
     runs-on: windows-2025
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582
+        with:
+          toolchain: stable
           components: rustfmt, clippy
           targets: x86_64-pc-windows-msvc
-      - run: cargo fmt --all --check
-      - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked --all-targets
-      - run: cargo build --locked --release --target x86_64-pc-windows-msvc
-      - name: Exercise software encoders
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          shared-key: windows-x64
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Lint Windows targets
+        run: cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings
+      - name: Unit tests and native software encoders
+        run: cargo test --locked --release --target x86_64-pc-windows-msvc --lib
+      - name: Build portable executable and desktop test drivers
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bins --examples
+      - name: Exercise executable with synthetic media
         shell: pwsh
         run: |
-          & .\target\x86_64-pc-windows-msvc\release\quickcap.exe --smoke-test "$env:RUNNER_TEMP\quickcap-smoke"
-          if ($LASTEXITCODE -ne 0) { throw 'Native media smoke test failed' }
-          Get-Content "$env:RUNNER_TEMP\quickcap-smoke\result.txt"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          $folder = Join-Path $env:RUNNER_TEMP 'quickcap-smoke'
+          $process = Start-Process -FilePath .\target\x86_64-pc-windows-msvc\release\quickcap.exe -ArgumentList @('--smoke-test', "`"$folder`"") -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw 'Native media smoke test failed' }
+          Get-Content (Join-Path $folder 'result.txt')
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: quickcap-windows-x64-unsigned
           path: target/x86_64-pc-windows-msvc/release/quickcap.exe
           if-no-files-found: error
-  core:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      - run: cargo test --locked --lib
+          retention-days: 14

@@ -1,4 +1,4 @@
-name: Signed release
+name: Signed Windows release
 on:
   push:
     tags: ['v*']
@@ -7,64 +7,93 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
+    if: github.repository == 'allquixotic/quickcap' && startsWith(github.ref, 'refs/tags/v')
     uses: ./.github/workflows/ci.yml
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: windows-2025
-    environment: release
+    timeout-minutes: 20
+    environment: azure-artifact-signing
     permissions:
       id-token: write
       contents: write
+      attestations: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Check version and signing configuration
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check release source, version and signing configuration
         shell: pwsh
         env:
           ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           PROFILE: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
-          CLIENT: ${{ secrets.AZURE_CLIENT_ID }}
-          TENANT: ${{ secrets.AZURE_TENANT_ID }}
-          SUBSCRIPTION: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          CLIENT: ${{ vars.AZURE_CLIENT_ID }}
+          TENANT: ${{ vars.AZURE_TENANT_ID }}
+          SUBSCRIPTION: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
         run: |
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Release commit must be on main' }
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag does not match Cargo.toml version' }
-          foreach ($name in 'ENDPOINT','ACCOUNT','PROFILE','CLIENT','TENANT','SUBSCRIPTION') {
+          foreach ($name in 'ENDPOINT','ACCOUNT','PROFILE','CLIENT','TENANT','SUBSCRIPTION','PUBLISHER') {
             if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Missing release configuration: $name" }
           }
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: quickcap-windows-x64-unsigned
           path: dist
-      - uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f # v3
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - uses: azure/artifact-signing-action@c0ae2c1d0c1847ab81ac0ab8521bee597cfedd30 # v2
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign executable with Azure
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
         with:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
-          files-folder: ${{ github.workspace }}\dist
-          files-folder-filter: exe
+          files: ${{ github.workspace }}/dist/quickcap.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           exclude-environment-credential: true
           exclude-managed-identity-credential: true
           exclude-azure-cli-credential: false
-      - name: Verify signature and hash signed bytes
+      - name: Verify publisher and timestamp; test signed executable
         shell: pwsh
+        env:
+          WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
         run: |
           $signature = Get-AuthenticodeSignature dist\quickcap.exe
-          if ($signature.Status -ne 'Valid') { throw "Invalid signature: $($signature.Status)" }
-          if (-not $signature.TimeStamperCertificate) { throw 'Missing signing timestamp' }
+          if ($signature.Status -ne 'Valid' -or
+              $signature.SignerCertificate.Subject -ne $env:WINDOWS_PUBLISHER -or
+              $null -eq $signature.TimeStamperCertificate) {
+            throw "Missing, invalid, untimestamped or unexpected signature: $($signature.Status)"
+          }
+          Write-Host "Verified publisher: $($signature.SignerCertificate.Subject)"
+          $folder = Join-Path $env:RUNNER_TEMP 'quickcap-signed-smoke'
+          $process = Start-Process -FilePath .\dist\quickcap.exe -ArgumentList @('--smoke-test', "`"$folder`"") -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw 'Signed executable smoke test failed' }
+          Get-Content (Join-Path $folder 'result.txt')
           $hash = (Get-FileHash dist\quickcap.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  quickcap.exe" | Set-Content dist\SHA256SUMS -Encoding ascii
+      - name: Attest signed executable
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/quickcap.exe
+      - name: Preserve provenance bundle
+        run: Copy-Item '${{ steps.provenance.outputs.bundle-path }}' dist/quickcap-attestation.sigstore.json
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           fail_on_unmatched_files: true
@@ -72,3 +101,4 @@ jobs:
           files: |
             dist/quickcap.exe
             dist/SHA256SUMS
+            dist/quickcap-attestation.sigstore.json
