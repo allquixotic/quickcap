@@ -3,7 +3,11 @@
 #[cfg(all(windows, target_arch = "x86_64"))]
 fn main() {
     if let Err(error) = quickcap::windows::run() {
-        quickcap::windows::show_error(&format!("{error:#}"));
+        if std::env::args_os().len() == 1 {
+            quickcap::windows::show_error(&format!("{error:#}"));
+        } else {
+            eprintln!("{error:#}");
+        }
         std::process::exit(1);
     }
 }

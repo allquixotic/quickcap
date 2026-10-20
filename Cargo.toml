@@ -20,18 +20,22 @@ windows = { version = "0.62", features = [
     "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio",
     "Win32_Media_MediaFoundation", "Win32_Media_KernelStreaming",
     "Win32_System_Com", "Win32_System_Com_StructuredStorage",
-    "Win32_System_LibraryLoader", "Win32_System_Memory",
-    "Win32_System_Threading", "Win32_System_Variant", "Win32_System_SystemInformation",
+    "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_DataExchange",
+    "Win32_System_Threading", "Win32_System_Performance", "Win32_System_Variant", "Win32_System_SystemInformation",
     "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Security"
 ] }
 
 [profile.release]
-opt-level = "s"
+opt-level = 3
 lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# Keep the toolkit/dependencies compact, but optimize our pixel and audio loops.
+[profile.release.package."*"]
+opt-level = "s"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

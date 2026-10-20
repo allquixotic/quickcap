@@ -30,15 +30,21 @@ V5: Audio shares video monotonic clock; absent input/output becomes silence with
 V6: GUI and hotkeys remain responsive; bounded capture pipeline drops stale frames without speeding up playback.
 V7: No application elevation or GPU API; standard-user native smoke and desktop capture tests succeed.
 V8: Release built with stable Rust, static CRT, software-only Slint; signing verified before publication.
+V9: Selection cancellation waits for worker handoff before accepting another action; clipboard publication uses non-null window owner.
+V10: MP3 PCM submissions ! fixed 1152-sample blocks; final block pads ≤1151 samples. Decoded audio timestamps ! monotonic.
 
 ## §T TASKS
 id|status|task|cites
 ---|---|---|---
 T1|x|Config, geometry, timeline/state core + named unit tests|V1,V2,V3,V5
-T2|~|GDI capture, clipboard/JPEG, WASAPI mix, software MP4 + smoke test|V1,V4,V5,V6,V7,I.test
-T3|.|Tray/hotkeys, region selection, Slint controls, countdown + shutdown|V2,V3,V6,V7,I.ui,I.tray
-T4|.|CI/signing/docs; Windows build, media decode + desktop validation|V4,V7,V8,I.release
+T2|x|GDI capture, clipboard/JPEG, WASAPI mix, software MP4 + smoke test|V1,V4,V5,V6,V7,I.test
+T3|x|Tray/hotkeys, region selection, Slint controls, countdown + shutdown|V2,V3,V6,V7,V9,I.ui,I.tray
+T4|~|CI/signing/docs; Windows build, media decode + desktop validation|V4,V7,V8,I.release
 
 ## §B BUGS
 id|date|cause|fix
 ---|---|---|---
+B1|2026-10-20|Win32 binding signatures and packed audio fields required exact pointer/alignment handling|V7; Windows cross-check
+B2|2026-10-20|Null clipboard owner blocks publication; cancelled selection could join replacement worker|V9; native integration coverage
+B3|2026-10-20|Hand-built MP3 media type omitted required codec extra data|Use advertised encoder type; native smoke test
+B4|2026-10-20|Variable PCM chunk sizes made Windows MP3 encoder emit overlapping timestamps|V10; fixed MPEG frame submissions and independent full decode
